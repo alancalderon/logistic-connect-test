@@ -53,8 +53,8 @@
                 <h1 class="text-5xl md:text-6xl font-extrabold leading-tight mb-6 italic">Mueve tu carga con los mejores.</h1>
                 <p class="text-xl text-slate-300 mb-10 max-w-lg">Conectamos la demanda de fletes con transportistas validados en tiempo real. Eficiencia, seguridad y control total.</p>
                 <div class="flex flex-col sm:flex-row gap-4">
-                    <button onclick="scrollToSection('registro', 'cliente')" class="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-xl font-bold text-lg transition shadow-xl">Soy Cliente</button>
-                    <button onclick="scrollToSection('registro', 'transportista')" class="bg-white/10 hover:bg-white/20 text-white border border-white/30 px-8 py-4 rounded-xl font-bold text-lg transition">Soy Transportista</button>
+                    <button onclick=window.open('TU_LINK_CLIENTE', '_blank')>Soy Cliente</button>
+                    <button onclick=window.open('TU_LINK_TRANSPORTISTA', '_blank')>Soy Transportista</button>
                 </div>
             </div>
             <div class="md:w-1/2 flex justify-center relative">
@@ -240,42 +240,25 @@
             if (role) switchRole(role);
         }
 
-        async function handleRegistration(event) {
+        // SUSTITUYE TU FUNCIÓN handleRegistration POR ESTA:
+        function handleRegistration(event) {
             event.preventDefault();
             
-            const btn = document.getElementById('submit-btn');
-            const btnText = document.getElementById('btn-text');
-            const loader = document.getElementById('btn-loader');
-            
-            // Recopilación de datos
-            const formData = {
-                role: currentRole,
-                nombre: document.getElementById('nombre').value,
-                telefono: document.getElementById('telefono').value,
-                origen: currentRole === 'cliente' ? document.getElementById('origen').value : null,
-                unidad: currentRole === 'transportista' ? document.getElementById('unidad').value : null,
-                placas: currentRole === 'transportista' ? document.getElementById('placas').value : null,
-                timestamp: new Date().toISOString()
-            };
-
-            // UI Feedback
-            btn.disabled = true;
-            btnText.innerText = "Registrando...";
-            loader.classList.remove('hidden');
-
-            try {
-                // Simulación de API (Aquí iría tu fetch a Google Sheets o Supabase)
-                await new Promise(resolve => setTimeout(resolve, 1500));
-                
-                showToast("¡Registro exitoso! Validaremos tu información.", "success");
-                document.getElementById('registro-form').reset();
-            } catch (error) {
-                showToast("Error de conexión. Intenta de nuevo.", "error");
-            } finally {
-                btn.disabled = false;
-                btnText.innerText = "Iniciar Registro";
-                loader.classList.add('hidden');
-            }
+            // REEMPLAZA ESTOS LINKS CON TUS ENLACES DE GOOGLE FORMS
+            const LINK_FORM_CLIENTE = "https://docs.google.com/forms/d/e/.../viewform";
+            const LINK_FORM_TRANSPORTISTA = "https://docs.google.com/forms/d/e/.../viewform";
+        
+            // UI Feedback: Notificación visual antes de salir
+            showToast("Abriendo formulario oficial...", "success");
+        
+            // Redirección basada en el rol seleccionado en las pestañas
+            setTimeout(() => {
+                if (currentRole === 'cliente') {
+                    window.open(LINK_FORM_CLIENTE, '_blank');
+                } else {
+                    window.open(LINK_FORM_TRANSPORTISTA, '_blank');
+                }
+            }, 500); // Pequeño retraso para que el usuario vea el mensaje
         }
 
         function showToast(msg, type) {
