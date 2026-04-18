@@ -5,11 +5,13 @@ import {
   notifySolicitudServicioAprobadaTransportista,
   notifySolicitudServicioAsignacionCanceladaCliente,
   notifySolicitudServicioAsignacionCanceladaTransportista,
+  notifySolicitudServicioRechazadaCliente,
   type SolicitudCorreoDetalle,
 } from '@/lib/resendNotify'
+import { downloadAdminXlsx } from '@/lib/adminExportXlsx'
 import { getSupabase } from '@/lib/supabase'
 import { inputClass, labelClass } from '@/lib/formStyles'
-import { solicitudServicioEstadoBadge } from '@/lib/solicitudServicioUi'
+import { solicitudServicioEstadoBadge, solicitudServicioEstadoLabel } from '@/lib/solicitudServicioUi'
 import { formatIngreso } from '@/pages/admin/adminUi'
 
 type SortKey = 'created_desc' | 'created_asc' | 'fecha_asc' | 'fecha_desc'
@@ -120,7 +122,6 @@ export function AdminSolicitudesPage() {
   const [loading, setLoading] = useState(true)
   const [actionErr, setActionErr] = useState('')
   const [approveErr, setApproveErr] = useState('')
-  const [actingId, setActingId] = useState<string | null>(null)
   const [mailInfo, setMailInfo] = useState('')
 
   const [approveTarget, setApproveTarget] = useState<Solicitud | null>(null)
@@ -133,6 +134,14 @@ export function AdminSolicitudesPage() {
   const [cancelTarget, setCancelTarget] = useState<Solicitud | null>(null)
   const [cancelBusy, setCancelBusy] = useState(false)
   const [cancelErr, setCancelErr] = useState('')
+
+  const [revertTarget, setRevertTarget] = useState<Solicitud | null>(null)
+  const [revertBusy, setRevertBusy] = useState(false)
+  const [revertErr, setRevertErr] = useState('')
+
+  const [rejectTarget, setRejectTarget] = useState<Solicitud | null>(null)
+  const [rejectBusy, setRejectBusy] = useState(false)
+  const [rejectErr, setRejectErr] = useState('')
 
   const load = useCallback(async () => {
     if (!sb) return
@@ -428,15 +437,35 @@ export function AdminSolicitudesPage() {
     await load()
   }
 
-  async function onRechazar(s: Solicitud) {
-    if (!sb) return
-    const ok = window.confirm(
-      '¿Marcar esta solicitud como rechazada? Seguirá en el listado con estado rechazada.',
-    )
-    if (!ok) return
+  function openRejectModal(s: Solicitud) {
+    if (s.estado !== 'pendiente') return
     setActionErr('')
     setMailInfo('')
-    setActingId(s.id)
+    setRejectErr('')
+    setRejectTarget(s)
+  }
+
+  function closeRejectModal() {
+    if (rejectBusy) return
+    setRejectTarget(null)
+    setRejectErr('')
+  }
+
+  async function confirmRechazar() {
+    const s = rejectTarget
+    if (!sb || !s || s.estado !== 'pendiente') return
+    setActionErr('')
+    setMailInfo('')
+    setRejectBusy(true)
+    setRejectErr('')
+
+    const det = detalleCorreoDesdeRow(s)
+    const { nombre: nombreCliente, email: emailCliente } = await fetchClienteNombreYEmail(
+      sb,
+      s.user_id,
+      s.perfil_email,
+    )
+
     const { data: updated, error } = await sb
       .from('solicitudes_servicio')
       .update({
@@ -449,15 +478,38 @@ export function AdminSolicitudesPage() {
       .eq('id', s.id)
       .eq('estado', 'pendiente')
       .select('id')
-    setActingId(null)
+
     if (error) {
-      setActionErr(error.message)
+      setRejectBusy(false)
+      setRejectErr(error.message)
       return
     }
     if (!updated?.length) {
-      setActionErr('La solicitud ya no está pendiente. Recarga la lista.')
+      setRejectBusy(false)
+      setRejectErr('La solicitud ya no está pendiente. Recarga la lista.')
       return
     }
+
+    let mailMsg = 'Solicitud rechazada.'
+    if (emailCliente) {
+      const r = await notifySolicitudServicioRechazadaCliente(sb, {
+        to: emailCliente,
+        nombre: nombreCliente,
+        det,
+      })
+      if (!r.ok) {
+        mailMsg = `Solicitud rechazada. No se pudo enviar el correo al cliente: ${r.error}`
+      } else {
+        mailMsg = 'Solicitud rechazada. Se envió el aviso por correo al cliente.'
+      }
+    } else {
+      mailMsg = 'Solicitud rechazada. Aviso: no hay correo del cliente en perfil.'
+    }
+    setMailInfo(mailMsg)
+
+    setRejectBusy(false)
+    setRejectTarget(null)
+    setRejectErr('')
     await load()
   }
 
@@ -551,7 +603,86 @@ export function AdminSolicitudesPage() {
     await load()
   }
 
-  const tableActionsLocked = approveTarget != null || cancelTarget != null
+  function openRevertModal(s: Solicitud) {
+    if (s.estado !== 'rechazada') return
+    setActionErr('')
+    setMailInfo('')
+    setRevertErr('')
+    setRevertTarget(s)
+  }
+
+  function closeRevertModal() {
+    if (revertBusy) return
+    setRevertTarget(null)
+    setRevertErr('')
+  }
+
+  async function confirmRevertirRechazo() {
+    const s = revertTarget
+    if (!sb || !s || s.estado !== 'rechazada') return
+    setActionErr('')
+    setMailInfo('')
+    setRevertBusy(true)
+    setRevertErr('')
+    const { data: updated, error } = await sb
+      .from('solicitudes_servicio')
+      .update({ estado: 'pendiente' })
+      .eq('id', s.id)
+      .eq('estado', 'rechazada')
+      .select('id')
+    setRevertBusy(false)
+    if (error) {
+      setRevertErr(error.message)
+      return
+    }
+    if (!updated?.length) {
+      setRevertErr('La solicitud ya no está rechazada. Recarga la lista.')
+      return
+    }
+    setMailInfo('Solicitud revertida a pendiente. Puedes aprobarla o rechazarla de nuevo.')
+    setRevertTarget(null)
+    setRevertErr('')
+    await load()
+  }
+
+  function exportSolicitudesExcel() {
+    if (rows.length === 0) return
+    downloadAdminXlsx({
+      fileBaseName: 'translogix-solicitudes',
+      sheetName: 'Solicitudes',
+      headers: [
+        'Alta',
+        'Usuario (correo)',
+        'Fecha servicio',
+        'Título',
+        'Descripción',
+        'Origen',
+        'Destino',
+        'Peso carga',
+        'Dimensiones',
+        'Transportista asignado',
+        'Unidad',
+        'Estado',
+      ],
+      rows: rows.map((r) => [
+        formatIngreso(r.created_at),
+        r.perfil_email ?? r.user_id,
+        r.fecha_servicio,
+        r.titulo,
+        r.descripcion ?? '',
+        r.origen ?? '',
+        r.destino ?? '',
+        r.peso_carga ?? '',
+        r.dimensiones_carga ?? '',
+        r.transportista_contacto ?? '',
+        r.flota_unidad_resumen ?? '',
+        solicitudServicioEstadoLabel(r.estado),
+      ]),
+    })
+  }
+
+  const tableActionsLocked =
+    approveTarget != null || cancelTarget != null || revertTarget != null || rejectTarget != null
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10">
@@ -559,11 +690,12 @@ export function AdminSolicitudesPage() {
       <p className="mb-4 max-w-3xl text-sm text-slate-600">
         Aprueba eligiendo transportista (razón social del registro) y la unidad de su flota; se envían correos al
         cliente y al transportista. Una vez asignada, puedes cancelar la asignación (vuelve a pendiente y se notifica de
-        nuevo; puedes repetir el proceso sin límite). Rechazar deja la solicitud como rechazada.
+        nuevo; puedes repetir el proceso sin límite). Rechazar deja la solicitud como rechazada y se envía un correo al
+        cliente; desde rechazada puedes revertir a pendiente (sin correo en ese paso).
       </p>
 
-      <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div className="max-w-md">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="max-w-md flex-1">
           <label className={labelClass} htmlFor="sort-solicitudes">
             Ordenar por
           </label>
@@ -580,6 +712,16 @@ export function AdminSolicitudesPage() {
             ))}
           </select>
         </div>
+        {!loading && !loadErr && rows.length > 0 && (
+          <button
+            type="button"
+            onClick={() => exportSolicitudesExcel()}
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-emerald-700/30 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-900 transition hover:bg-emerald-100"
+          >
+            <i className="fas fa-file-excel" aria-hidden />
+            Descargar Excel
+          </button>
+        )}
       </div>
 
       {!sb && <p className="text-amber-800">{loadErr}</p>}
@@ -644,7 +786,7 @@ export function AdminSolicitudesPage() {
                       <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
-                          disabled={tableActionsLocked || actingId === r.id}
+                          disabled={tableActionsLocked}
                           onClick={() => void openApprove(r)}
                           className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
                         >
@@ -652,8 +794,8 @@ export function AdminSolicitudesPage() {
                         </button>
                         <button
                           type="button"
-                          disabled={tableActionsLocked || actingId === r.id}
-                          onClick={() => void onRechazar(r)}
+                          disabled={tableActionsLocked}
+                          onClick={() => openRejectModal(r)}
                           className="rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
                         >
                           Rechazar
@@ -662,7 +804,7 @@ export function AdminSolicitudesPage() {
                     ) : r.estado === 'asignado' ? (
                       <button
                         type="button"
-                        disabled={tableActionsLocked || actingId === r.id}
+                        disabled={tableActionsLocked}
                         onClick={() => {
                           setActionErr('')
                           setMailInfo('')
@@ -671,6 +813,19 @@ export function AdminSolicitudesPage() {
                         className="rounded-lg border border-slate-400 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
                       >
                         Cancelar asignación
+                      </button>
+                    ) : r.estado === 'rechazada' ? (
+                      <button
+                        type="button"
+                        disabled={tableActionsLocked}
+                        onClick={() => {
+                          setActionErr('')
+                          setMailInfo('')
+                          openRevertModal(r)
+                        }}
+                        className="rounded-lg border border-blue-300 bg-white px-3 py-1.5 text-xs font-semibold text-blue-800 hover:bg-blue-50 disabled:opacity-50"
+                      >
+                        Revertir
                       </button>
                     ) : (
                       <span className="text-xs text-slate-400">—</span>
@@ -770,6 +925,57 @@ export function AdminSolicitudesPage() {
         </div>
       )}
 
+      {rejectTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reject-solicitud-dialog-title"
+          onClick={(ev) => {
+            if (ev.target === ev.currentTarget && !rejectBusy) closeRejectModal()
+          }}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="reject-solicitud-dialog-title" className="mb-2 text-lg font-bold text-slate-800">
+              Rechazar solicitud
+            </h2>
+            <p className="mb-3 text-sm text-slate-600">
+              La solicitud quedará como <strong className="text-slate-800">rechazada</strong> y seguirá en el listado.
+              Se enviará un <strong>correo al cliente</strong> con el aviso y el detalle del viaje (si hay correo en su
+              perfil).
+            </p>
+            <div className="mb-4 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+              <p className="font-semibold text-slate-800">{rejectTarget.titulo}</p>
+              <p className="mt-1 text-slate-600">
+                Servicio el <span className="font-medium">{rejectTarget.fecha_servicio}</span>
+              </p>
+            </div>
+            {rejectErr && <p className="mb-3 text-sm text-red-600">{rejectErr}</p>}
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                onClick={closeRejectModal}
+                disabled={rejectBusy}
+              >
+                Volver
+              </button>
+              <button
+                type="button"
+                className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+                disabled={rejectBusy}
+                onClick={() => void confirmRechazar()}
+              >
+                {rejectBusy ? 'Procesando…' : 'Sí, rechazar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {cancelTarget && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
@@ -829,6 +1035,56 @@ export function AdminSolicitudesPage() {
                 onClick={() => void confirmCancelarAsignacion()}
               >
                 {cancelBusy ? 'Procesando…' : 'Sí, cancelar asignación'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {revertTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="revert-reject-dialog-title"
+          onClick={(ev) => {
+            if (ev.target === ev.currentTarget && !revertBusy) closeRevertModal()
+          }}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="revert-reject-dialog-title" className="mb-2 text-lg font-bold text-slate-800">
+              Revertir rechazo
+            </h2>
+            <p className="mb-3 text-sm text-slate-600">
+              La solicitud volverá a <strong className="text-slate-800">pendiente</strong> y podrás aprobarla o
+              rechazarla de nuevo. No se envía correo en este paso.
+            </p>
+            <div className="mb-4 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+              <p className="font-semibold text-slate-800">{revertTarget.titulo}</p>
+              <p className="mt-1 text-slate-600">
+                Servicio el <span className="font-medium">{revertTarget.fecha_servicio}</span>
+              </p>
+            </div>
+            {revertErr && <p className="mb-3 text-sm text-red-600">{revertErr}</p>}
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                onClick={closeRevertModal}
+                disabled={revertBusy}
+              >
+                Volver
+              </button>
+              <button
+                type="button"
+                className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                disabled={revertBusy}
+                onClick={() => void confirmRevertirRechazo()}
+              >
+                {revertBusy ? 'Guardando…' : 'Sí, volver a pendiente'}
               </button>
             </div>
           </div>

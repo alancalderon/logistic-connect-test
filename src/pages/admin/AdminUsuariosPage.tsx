@@ -9,6 +9,7 @@ import {
   type TransportistaRegistroAdmin,
 } from '@/lib/adminCuentaActions'
 import { decisionConCorreoPrimero, mensajeErrorDecisionConCorreo } from '@/lib/adminDecisionWithEmail'
+import { downloadAdminXlsx } from '@/lib/adminExportXlsx'
 import { fetchUsuariosRegistrosPair } from '@/lib/adminRegistrosFetch'
 import { getSupabase } from '@/lib/supabase'
 import { notifyAccesoAprobado, notifySolicitudRechazada } from '@/lib/resendNotify'
@@ -56,6 +57,12 @@ type UnifiedRow =
 function parseEstadoAprobacion(v: string | null | undefined): EstadoAprobacion {
   if (v === 'aprobado' || v === 'rechazado' || v === 'pendiente') return v
   return 'pendiente'
+}
+
+function cuentaEstadoExcel(e: EstadoAprobacion): string {
+  if (e === 'aprobado') return 'Aprobado'
+  if (e === 'rechazado') return 'Rechazado'
+  return 'Pendiente'
 }
 
 const accionesColClass =
@@ -469,6 +476,73 @@ export function AdminUsuariosPage() {
     )
   }
 
+  function exportUsuariosExcel() {
+    if (!clientes || !transportistas) return
+    if (tab === 'todos') {
+      if (todosOrdenados.length === 0) return
+      downloadAdminXlsx({
+        fileBaseName: 'translogix-usuarios-todos',
+        sheetName: 'Todos',
+        headers: ['Ingreso', 'Tipo', 'Nombre', 'Email', 'Detalle', 'Estado cuenta'],
+        rows: todosOrdenados.map((r) => [
+          formatIngreso(r.created_at),
+          r.kind === 'cliente' ? 'Cliente' : 'Transportista',
+          r.titulo,
+          r.email,
+          r.detalle,
+          r.kind === 'cliente'
+            ? cuentaEstadoExcel(r.cliente.estado_aprobacion)
+            : cuentaEstadoExcel(r.transportista.estado_aprobacion),
+        ]),
+      })
+      return
+    }
+    if (tab === 'clientes') {
+      if (clientes.length === 0) return
+      downloadAdminXlsx({
+        fileBaseName: 'translogix-usuarios-clientes',
+        sheetName: 'Clientes',
+        headers: ['Ingreso', 'Razón social', 'Contacto', 'Cargo contacto', 'Email', 'Teléfono', 'Estado cuenta', 'User ID'],
+        rows: clientes.map((r) => [
+          formatIngreso(r.created_at),
+          r.razon_social,
+          r.contacto_nombre,
+          r.contacto_cargo ?? '',
+          r.email,
+          r.telefono,
+          cuentaEstadoExcel(r.estado_aprobacion),
+          r.user_id ?? '',
+        ]),
+      })
+      return
+    }
+    if (transportistas.length === 0) return
+    downloadAdminXlsx({
+      fileBaseName: 'translogix-usuarios-transportistas',
+      sheetName: 'Transportistas',
+      headers: [
+        'Ingreso',
+        'Razón social',
+        'Contacto',
+        'Email',
+        'Teléfono',
+        'RFC',
+        'Estado cuenta',
+        'User ID',
+      ],
+      rows: transportistas.map((r) => [
+        formatIngreso(r.created_at),
+        r.nombre_o_razon,
+        r.contacto_nombre,
+        r.email,
+        r.telefono,
+        r.rfc ?? '',
+        cuentaEstadoExcel(r.estado_aprobacion),
+        r.user_id ?? '',
+      ]),
+    })
+  }
+
   const tabBtn = (id: Tab, label: string) => (
     <button
       type="button"
@@ -511,10 +585,20 @@ export function AdminUsuariosPage() {
 
       {!loading && !loadErr && hayDatos && (
         <>
-          <div className="-mx-4 mb-6 flex gap-1 overflow-x-auto border-b border-slate-200 px-4 pb-px sm:mx-0 sm:px-0">
-            {tabBtn('todos', 'Todos')}
-            {tabBtn('clientes', 'Clientes')}
-            {tabBtn('transportistas', 'Transportistas')}
+          <div className="-mx-4 mb-4 flex flex-col gap-3 sm:mx-0 sm:mb-6 sm:flex-row sm:items-center sm:justify-between sm:px-0">
+            <div className="flex gap-1 overflow-x-auto border-b border-slate-200 px-4 pb-px sm:px-0">
+              {tabBtn('todos', 'Todos')}
+              {tabBtn('clientes', 'Clientes')}
+              {tabBtn('transportistas', 'Transportistas')}
+            </div>
+            <button
+              type="button"
+              onClick={() => exportUsuariosExcel()}
+              className="mx-4 inline-flex shrink-0 items-center justify-center gap-2 self-end rounded-xl border border-emerald-700/30 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-900 transition hover:bg-emerald-100 sm:mx-0"
+            >
+              <i className="fas fa-file-excel" aria-hidden />
+              Descargar Excel
+            </button>
           </div>
 
           {tab === 'clientes' && clientes && (

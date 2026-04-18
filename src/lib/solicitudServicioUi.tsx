@@ -12,9 +12,13 @@ const solicitudEstadoLabels: Record<string, string> = {
   rechazada: 'Rechazada',
 }
 
+export function solicitudServicioEstadoLabel(estado: string) {
+  return solicitudEstadoLabels[estado] ?? estado
+}
+
 export function solicitudServicioEstadoBadge(estado: string) {
   const cls = solicitudEstadoStyles[estado] ?? 'bg-slate-100 text-slate-700'
-  const label = solicitudEstadoLabels[estado] ?? estado
+  const label = solicitudServicioEstadoLabel(estado)
   return (
     <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${cls}`}>{label}</span>
   )

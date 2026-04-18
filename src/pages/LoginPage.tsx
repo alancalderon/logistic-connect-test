@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { PublicNav } from '@/components/PublicNav'
 import { describeSignInError, normalizeAuthEmail } from '@/lib/authLogin'
 import { fetchAppProfile } from '@/lib/profile'
 import { getSupabase } from '@/lib/supabase'
@@ -148,18 +149,9 @@ export function LoginPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-slate-50 text-slate-900">
-      <nav className="border-b border-slate-200 bg-white/90 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-lg items-center justify-between gap-3 px-4 sm:px-6">
-          <Link to="/" className="text-lg font-bold text-blue-600 no-underline">
-            Trans<span className="text-slate-800">Logix</span>
-          </Link>
-          <Link to="/" className="text-sm font-medium text-slate-600 hover:text-blue-600">
-            Inicio
-          </Link>
-        </div>
-      </nav>
+      <PublicNav />
 
-      <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-4 py-10">
+      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center px-4 py-10 sm:px-6 sm:py-12">
         <h1 className="mb-2 text-2xl font-bold text-slate-800">Iniciar sesión</h1>
         <p className="mb-8 text-sm text-slate-600">
           Usa el mismo correo y contraseña que usaste al registrarte en TransLogix.

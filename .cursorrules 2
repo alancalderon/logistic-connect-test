@@ -1,0 +1,34 @@
+# TransLogix — reglas del proyecto
+
+## Stack
+- Frontend: **React 19**, **Vite 6**, **TypeScript**, **Tailwind CSS v4** (`@import "tailwindcss"` + `@tailwindcss/vite`).
+- Routing: **React Router v7**.
+- Backend: **Supabase** (Auth, Postgres, RLS, Edge Functions). Cliente/transportista: **bcrypt** en `registro_*` + **`signUp`** / **`signInWithPassword`** + RPC **`vincular_mi_registro_pendiente()`**. Admin: **`/admin-login`** con Auth.
+
+## Estilo de código
+- Mantener **TypeScript estricto**; evitar `any` salvo justificación breve.
+- Reutilizar patrones ya presentes en `src/` (estructura de páginas, `getSupabase()`, clases de formulario en `lib/formStyles.ts`).
+- UI y textos de producto en **español (México)** salvo rutas técnicas (`/admin-login`, nombres de variables en inglés).
+- Cambios **acotados al pedido**: sin refactors masivos ni archivos de documentación salvo que los pidan.
+
+## Supabase y seguridad
+- Variables: solo **`VITE_*`** en cliente; credenciales en `.env` (gitignored). La **anon key** es pública por diseño; la seguridad va en **RLS** y políticas.
+- Cualquier tabla con datos de usuarios: pensar **RLS** (quién puede `insert`/`select`/`update`). Alta pública **cliente/transportista**: RPC **`registrar_*_manual`** (anon) + **`signUp`** con el mismo correo/contraseña + **`vincular_mi_registro_pendiente()`**. Login **`signInWithPassword`** + misma RPC al entrar si hace falta. `anon` no inserta directo en `registro_*` (migración `20260418150000` revoca insert `authenticated` allí).
+- No exponer **service role** en el frontend.
+
+## Rutas y producto
+- **`/admin-login`** no debe enlazarse desde la landing ni formularios públicos (acceso directo por URL). El acceso general de usuarios es **`/iniciar-sesion`**.
+- Flujo público: formulario → RPC `registrar_*_manual` (bcrypt, pendiente) → **`signUp`** + **`vincular_mi_registro_pendiente()`** → admin **`admin_aprobar_*`** → **`/iniciar-sesion`** (`signInWithPassword`). **`/activar-cuenta`** redirige a login. Paneles **`/panel/cliente/solicitudes`**, **`/panel/transportista/flota`**. Admin: **`/admin/usuarios`**, **`/admin/solicitudes`**, **`/admin/flota`**. Correos (Resend vía Edge **`send-email`**) en aprobación/rechazo.
+- Marca: **TransLogix** (no LogiConnect).
+
+## Responsive (Tailwind)
+- Enfoque **mobile-first**: estilos base para móvil, prefijos `sm:` / `md:` / `lg:` para pantallas mayores.
+- **Navegación pública**: en `md` y abajo suele ir menú hamburguesa; enlaces de escritorio en `hidden md:flex`.
+- **Formularios y páginas largas**: `px-4 sm:px-6`, padding interno de tarjetas `p-4 sm:p-8` donde aplique.
+- **Tablas (admin)**: envolver en `overflow-x-auto`; cabeceras de pestañas con scroll horizontal si no caben (`overflow-x-auto`, botones `shrink-0 whitespace-nowrap`).
+- **Evitar desbordes horizontales**: `overflow-x-hidden` o `clip` en hero/iconos grandes; no asumir anchos fijos enormes en móvil.
+- **Áreas táctiles**: botones e iconos de acción con tamaño mínimo razonable (~44px) en móvil cuando sea posible.
+
+## Calidad
+- Tras cambios sustantivos, ejecutar **`npm run build`** y corregir errores de TypeScript.
+- Preferir componentes pequeños y rutas claras bajo `src/pages/` y `src/components/`.

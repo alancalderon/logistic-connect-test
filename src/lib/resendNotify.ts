@@ -230,6 +230,25 @@ function buildHtmlSolicitudCancelacionCliente(params: { nombre: string; det: Sol
   })
 }
 
+function buildHtmlSolicitudServicioRechazadaCliente(params: { nombre: string; det: SolicitudCorreoDetalle }) {
+  const panelUrl = panelClienteSolicitudesUrl()
+  const inner = `
+    <p style="margin:0 0 12px;font-size:17px;color:#0f172a;">Hola, <strong>${escapeAttr(params.nombre)}</strong></p>
+    <p style="margin:0 0 16px;">Tu <strong>solicitud de servicio</strong> fue <strong>rechazada</strong> por operaciones y no continuará en el flujo de asignación.</p>
+    ${solicitudDetalleTableHtml(params.det)}
+    <p style="margin:16px 0 0;font-size:14px;color:#475569;">Puedes consultar el estado en tu panel. Si crees que hubo un error o necesitas más información, responde a este correo o contacta al equipo.</p>
+  `
+  const footer = `Enlace al panel:<br /><span style="word-break:break-all;color:#475569;">${escapeAttr(panelUrl)}</span>`
+  return emailShell({
+    accent: 'neutral',
+    title: 'Solicitud de servicio rechazada',
+    innerHtml: inner,
+    ctaLabel: 'Ver mis solicitudes',
+    ctaHref: panelUrl,
+    footerNote: footer,
+  })
+}
+
 function buildHtmlSolicitudCancelacionTransportista(params: { nombre: string; det: SolicitudCorreoDetalle }) {
   const panelUrl = panelTransportistaUrl()
   const inner = `
@@ -447,6 +466,18 @@ export async function notifySolicitudServicioAsignacionCanceladaCliente(
   return invokeSendEmail(sb, {
     to: input.to.trim().toLowerCase(),
     subject: 'TransLogix — asignación de servicio cancelada',
+    html,
+  })
+}
+
+export async function notifySolicitudServicioRechazadaCliente(
+  sb: SupabaseClient,
+  input: { to: string; nombre: string; det: SolicitudCorreoDetalle },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const html = buildHtmlSolicitudServicioRechazadaCliente(input)
+  return invokeSendEmail(sb, {
+    to: input.to.trim().toLowerCase(),
+    subject: 'TransLogix — solicitud de servicio rechazada',
     html,
   })
 }

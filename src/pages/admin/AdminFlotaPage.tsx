@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { downloadAdminXlsx } from '@/lib/adminExportXlsx'
 import { getSupabase } from '@/lib/supabase'
 import { formatIngreso } from '@/pages/admin/adminUi'
 
@@ -67,12 +68,44 @@ export function AdminFlotaPage() {
     }
   }, [sb, load])
 
+  function exportFlotaExcel() {
+    if (rows.length === 0) return
+    downloadAdminXlsx({
+      fileBaseName: 'translogix-flota',
+      sheetName: 'Flota',
+      headers: ['Alta', 'Usuario (correo)', 'User ID', 'Tipo unidad', 'Placas', 'Número económico'],
+      rows: rows.map((r) => [
+        formatIngreso(r.created_at),
+        r.perfil_email ?? '',
+        r.user_id,
+        r.tipo_unidad,
+        r.placas,
+        r.numero_economico ?? '',
+      ]),
+    })
+  }
+
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10">
-      <h1 className="mb-2 text-xl font-bold text-slate-800 sm:text-2xl">Flota</h1>
-      <p className="mb-6 max-w-3xl text-sm text-slate-600">
-        Unidades registradas por transportistas desde su panel (además de la unidad principal en expediente, si aplica).
-      </p>
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="mb-2 text-xl font-bold text-slate-800 sm:text-2xl">Flota</h1>
+          <p className="max-w-3xl text-sm text-slate-600">
+            Unidades registradas por transportistas desde su panel (además de la unidad principal en expediente, si
+            aplica).
+          </p>
+        </div>
+        {!loading && !loadErr && rows.length > 0 && (
+          <button
+            type="button"
+            onClick={() => exportFlotaExcel()}
+            className="inline-flex shrink-0 items-center justify-center gap-2 self-start rounded-xl border border-emerald-700/30 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-900 transition hover:bg-emerald-100 sm:self-auto"
+          >
+            <i className="fas fa-file-excel" aria-hidden />
+            Descargar Excel
+          </button>
+        )}
+      </div>
 
       {!sb && <p className="text-amber-800">{loadErr}</p>}
       {loading && sb && <p className="text-slate-500">Cargando…</p>}
