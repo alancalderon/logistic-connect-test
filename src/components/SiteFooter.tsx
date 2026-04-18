@@ -8,13 +8,7 @@ export function SiteFooter() {
           </span>
           <p className="mt-2 text-sm">La red logística de Baja California.</p>
         </div>
-        <div className="flex items-center justify-center gap-4 text-xl sm:gap-6 md:justify-end">
-          <a href="#" className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg transition hover:bg-slate-800 hover:text-white" aria-label="Facebook">
-            <i className="fab fa-facebook" />
-          </a>
-          <a href="#" className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg transition hover:bg-slate-800 hover:text-white" aria-label="LinkedIn">
-            <i className="fab fa-linkedin" />
-          </a>
+        <div className="flex items-center justify-center text-xl md:justify-end">
           <a href="#" className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg transition hover:bg-slate-800 hover:text-white" aria-label="WhatsApp">
             <i className="fab fa-whatsapp" />
           </a>
