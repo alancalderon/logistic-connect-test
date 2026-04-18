@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+html {
+  overflow-x: clip;
+}
+
+body {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  scroll-behavior: smooth;
+  overflow-x: clip;
+}

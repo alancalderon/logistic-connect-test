@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+
+# Build
+dist/
+dist-ssr/
+*.local
+
+# Environment (never commit secrets)
+.env
+.env.*
+!.env.example
+
+# Logs & debug
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# TypeScript / Vite
+*.tsbuildinfo
+node_modules/.tmp/
+
+# Test & coverage
+coverage/
+.nyc_output/
+
+# Editor & OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDEs
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Optional local tooling
+.vercel
+.turbo
+*.pem
+
+# Supabase CLI (si usas `supabase start` / enlaces locales)
+.branches/
+.temp/

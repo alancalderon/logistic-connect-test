@@ -1,0 +1,8 @@
+# Config mínima para desplegar Edge Functions (`supabase functions deploy send-email`).
+# Ajusta project_id al de tu dashboard si usas enlaces locales del CLI.
+
+[api]
+enabled = true
+
+[functions]
+verify_jwt = true
