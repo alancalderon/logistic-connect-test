@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useState } from 'react'
 import { flotaUnidadResumen } from '@/lib/flotaFormat'
 import {
   notifySolicitudServicioAprobadaCliente,
@@ -12,6 +12,7 @@ import { downloadAdminXlsx } from '@/lib/adminExportXlsx'
 import { getSupabase } from '@/lib/supabase'
 import { inputClass, labelClass } from '@/lib/formStyles'
 import { solicitudServicioEstadoBadge, solicitudServicioEstadoLabel } from '@/lib/solicitudServicioUi'
+import { formatoInstanteLocal } from '@/lib/solicitudHorarios'
 import { formatIngreso } from '@/pages/admin/adminUi'
 
 type SortKey = 'created_desc' | 'created_asc' | 'fecha_asc' | 'fecha_desc'
@@ -23,6 +24,9 @@ type Solicitud = {
   titulo: string
   descripcion: string | null
   fecha_servicio: string
+  carga_programada: string | null
+  entrega_ventana_inicio: string | null
+  entrega_ventana_fin: string | null
   origen: string | null
   destino: string | null
   peso_carga: string | null
@@ -54,6 +58,9 @@ function detalleCorreoDesdeRow(s: Solicitud): SolicitudCorreoDetalle {
     descripcion: s.descripcion,
     peso_carga: s.peso_carga,
     dimensiones_carga: s.dimensiones_carga,
+    carga_programada: s.carga_programada,
+    entrega_ventana_inicio: s.entrega_ventana_inicio,
+    entrega_ventana_fin: s.entrega_ventana_fin,
   }
 }
 
@@ -61,7 +68,7 @@ async function fetchClienteNombreYEmail(
   sb: NonNullable<ReturnType<typeof getSupabase>>,
   userId: string,
   perfilEmailHint: string | null,
-): Promise<{ nombre: string; email: string | null }> {
+): Promise<{ nombre: string; email: string | null; telefono: string | null }> {
   const { data: p } = await sb.from('profiles').select('email').eq('id', userId).maybeSingle()
   const fromProfile = p?.email ? String(p.email).trim() : ''
   const emailRaw = fromProfile || (perfilEmailHint?.trim() ?? '')
@@ -69,7 +76,7 @@ async function fetchClienteNombreYEmail(
   const email = emailNorm.includes('@') ? emailNorm : null
   const { data: c } = await sb
     .from('registro_clientes')
-    .select('razon_social, contacto_nombre')
+    .select('razon_social, contacto_nombre, telefono')
     .eq('user_id', userId)
     .eq('estado_aprobacion', 'aprobado')
     .order('created_at', { ascending: false })
@@ -78,7 +85,8 @@ async function fetchClienteNombreYEmail(
   const razon = String(c?.razon_social ?? '').trim()
   const contacto = String(c?.contacto_nombre ?? '').trim()
   const nombre = razon || contacto || (email ? email.split('@')[0] : '') || 'Cliente'
-  return { nombre, email }
+  const tel = String(c?.telefono ?? '').trim()
+  return { nombre, email, telefono: tel || null }
 }
 
 async function fetchProfileEmail(
@@ -107,12 +115,310 @@ async function fetchTransportistaNombreRegistro(
   return n || fallback
 }
 
+type DetalleExtra = {
+  clienteNombre: string
+  clienteEmail: string | null
+  clienteTelefono: string | null
+  transportistaRazonSocial: string | null
+  transportistaRfc: string | null
+  transportistaTelefono: string | null
+  transportistaEmailPerfil: string | null
+  unidad: {
+    tipo_unidad: string
+    placas: string
+    numero_economico: string | null
+  } | null
+}
+
+async function fetchDetalleExtra(
+  sb: NonNullable<ReturnType<typeof getSupabase>>,
+  s: Solicitud,
+): Promise<DetalleExtra> {
+  const cliente = await fetchClienteNombreYEmail(sb, s.user_id, s.perfil_email)
+  let transportistaRazonSocial: string | null = null
+  let transportistaRfc: string | null = null
+  let transportistaTelefono: string | null = null
+  let transportistaEmailPerfil: string | null = null
+  let unidad: DetalleExtra['unidad'] = null
+
+  if (s.transportista_user_id) {
+    transportistaEmailPerfil = await fetchProfileEmail(sb, s.transportista_user_id)
+    const { data: reg } = await sb
+      .from('registro_transportistas')
+      .select('nombre_o_razon, rfc, telefono')
+      .eq('user_id', s.transportista_user_id)
+      .eq('estado_aprobacion', 'aprobado')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (reg) {
+      transportistaRazonSocial = String(reg.nombre_o_razon ?? '').trim() || null
+      const rfc = String(reg.rfc ?? '').trim()
+      transportistaRfc = rfc || null
+      const tel = String(reg.telefono ?? '').trim()
+      transportistaTelefono = tel || null
+    }
+  }
+
+  if (s.flota_unidad_id) {
+    const { data: u } = await sb
+      .from('flota_unidades')
+      .select('tipo_unidad, placas, numero_economico')
+      .eq('id', s.flota_unidad_id)
+      .maybeSingle()
+    if (u) {
+      unidad = {
+        tipo_unidad: String(u.tipo_unidad ?? ''),
+        placas: String(u.placas ?? ''),
+        numero_economico: u.numero_economico != null ? String(u.numero_economico) : null,
+      }
+    }
+  }
+
+  return {
+    clienteNombre: cliente.nombre,
+    clienteEmail: cliente.email,
+    clienteTelefono: cliente.telefono,
+    transportistaRazonSocial,
+    transportistaRfc,
+    transportistaTelefono,
+    transportistaEmailPerfil,
+    unidad,
+  }
+}
+
 const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: 'created_desc', label: 'Fecha de alta (más recientes primero)' },
   { value: 'created_asc', label: 'Fecha de alta (más antiguas primero)' },
   { value: 'fecha_asc', label: 'Fecha de servicio (próximas primero)' },
   { value: 'fecha_desc', label: 'Fecha de servicio (más lejanas primero)' },
 ]
+
+function DetalleCampo({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="grid gap-1 border-b border-slate-100 py-3 last:border-b-0 sm:grid-cols-[minmax(7.5rem,10rem)_1fr] sm:items-start sm:gap-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <div className="min-w-0 break-words text-sm leading-relaxed text-slate-800">{children}</div>
+    </div>
+  )
+}
+
+function DetalleSeccion({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50/50 shadow-sm">
+      <h3 className="border-b border-slate-200 bg-slate-100/80 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-slate-600">
+        {title}
+      </h3>
+      <div className="bg-white px-4">{children}</div>
+    </section>
+  )
+}
+
+function SolicitudDetalleModal({
+  sb,
+  s,
+  onClose,
+}: {
+  sb: NonNullable<ReturnType<typeof getSupabase>>
+  s: Solicitud
+  onClose: () => void
+}) {
+  const [extra, setExtra] = useState<DetalleExtra | 'loading' | 'error'>('loading')
+
+  useEffect(() => {
+    let cancelled = false
+    setExtra('loading')
+    ;(async () => {
+      try {
+        const data = await fetchDetalleExtra(sb, s)
+        if (!cancelled) setExtra(data)
+      } catch {
+        if (!cancelled) setExtra('error')
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [sb, s])
+
+  const extraOk = extra !== 'loading' && extra !== 'error' ? extra : null
+  const loadingExtra = extra === 'loading'
+
+  return (
+    <div
+      className="fixed inset-0 z-[45] overflow-y-auto overscroll-y-contain bg-black/40 py-6 sm:py-10"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="solicitud-detalle-titulo"
+      onClick={(ev) => {
+        if (ev.target === ev.currentTarget) onClose()
+      }}
+    >
+      <div className="flex min-h-[calc(100dvh-3rem)] flex-col items-center justify-start px-4 sm:min-h-0 sm:justify-center">
+        <div
+          className="flex min-h-0 w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl"
+          style={{ maxHeight: 'min(90dvh, 52rem)' }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 bg-white px-5 py-4">
+            <div className="min-w-0 flex-1">
+              <h2 id="solicitud-detalle-titulo" className="text-lg font-bold text-slate-900">
+                Solicitud de servicio
+              </h2>
+              <p className="mt-1 text-sm font-medium leading-snug text-slate-700">{s.titulo}</p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="shrink-0 rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+              aria-label="Cerrar"
+            >
+              <i className="fas fa-times" aria-hidden />
+            </button>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+            <div className="flex flex-col gap-4 pb-2">
+              <DetalleSeccion title="Detalles de la solicitud">
+                <DetalleCampo label="Alta en sistema">{formatIngreso(s.created_at)}</DetalleCampo>
+                <DetalleCampo label="Estado">{solicitudServicioEstadoBadge(s.estado)}</DetalleCampo>
+                <DetalleCampo label="Título">{s.titulo || '—'}</DetalleCampo>
+                <DetalleCampo label="Descripción / notas">
+                  {s.descripcion?.trim() ? (
+                    <span className="whitespace-pre-wrap">{s.descripcion}</span>
+                  ) : (
+                    '—'
+                  )}
+                </DetalleCampo>
+              </DetalleSeccion>
+
+              <DetalleSeccion title="Detalles del cliente">
+                <DetalleCampo label="Correo">
+                  {loadingExtra ? (
+                    <span className="text-slate-400">Cargando…</span>
+                  ) : (
+                    extraOk?.clienteEmail ?? s.perfil_email ?? '—'
+                  )}
+                </DetalleCampo>
+                <DetalleCampo label="Nombre / razón social">
+                  {loadingExtra ? (
+                    <span className="text-slate-400">Cargando…</span>
+                  ) : extraOk ? (
+                    extraOk.clienteNombre
+                  ) : (
+                    '—'
+                  )}
+                </DetalleCampo>
+                <DetalleCampo label="Teléfono">
+                  {loadingExtra ? (
+                    <span className="text-slate-400">Cargando…</span>
+                  ) : extraOk?.clienteTelefono ? (
+                    extraOk.clienteTelefono
+                  ) : (
+                    '—'
+                  )}
+                </DetalleCampo>
+              </DetalleSeccion>
+
+              <DetalleSeccion title="Detalles de la carga">
+                <DetalleCampo label="Fecha del servicio">{s.fecha_servicio}</DetalleCampo>
+                <DetalleCampo label="Hora de carga">
+                  {s.carga_programada ? formatoInstanteLocal(s.carga_programada) : '—'}
+                </DetalleCampo>
+                <DetalleCampo label="Ventana de entrega">
+                  {s.entrega_ventana_inicio && s.entrega_ventana_fin ? (
+                    <>
+                      {formatoInstanteLocal(s.entrega_ventana_inicio)} →{' '}
+                      {formatoInstanteLocal(s.entrega_ventana_fin)}
+                    </>
+                  ) : (
+                    '—'
+                  )}
+                </DetalleCampo>
+                <DetalleCampo label="Origen">{s.origen?.trim() || '—'}</DetalleCampo>
+                <DetalleCampo label="Destino">{s.destino?.trim() || '—'}</DetalleCampo>
+                <DetalleCampo label="Peso de la carga">{s.peso_carga?.trim() || '—'}</DetalleCampo>
+                <DetalleCampo label="Dimensiones">{s.dimensiones_carga?.trim() || '—'}</DetalleCampo>
+              </DetalleSeccion>
+
+              <DetalleSeccion title="Detalles del transportista">
+                {!s.transportista_user_id ? (
+                  <div className="py-4 text-sm text-slate-600">Sin transportista asignado.</div>
+                ) : (
+                  <>
+                    <DetalleCampo label="Nombre en la solicitud">
+                      {s.transportista_contacto?.trim() || '—'}
+                    </DetalleCampo>
+                    <DetalleCampo label="Razón social">
+                      {loadingExtra ? (
+                        <span className="text-slate-400">Cargando…</span>
+                      ) : (
+                        extraOk?.transportistaRazonSocial ?? '—'
+                      )}
+                    </DetalleCampo>
+                    <DetalleCampo label="RFC">
+                      {loadingExtra ? (
+                        <span className="text-slate-400">Cargando…</span>
+                      ) : (
+                        extraOk?.transportistaRfc ?? '—'
+                      )}
+                    </DetalleCampo>
+                    <DetalleCampo label="Teléfono">
+                      {loadingExtra ? (
+                        <span className="text-slate-400">Cargando…</span>
+                      ) : (
+                        extraOk?.transportistaTelefono ?? '—'
+                      )}
+                    </DetalleCampo>
+                    <DetalleCampo label="Correo en perfil">
+                      {loadingExtra ? (
+                        <span className="text-slate-400">Cargando…</span>
+                      ) : (
+                        extraOk?.transportistaEmailPerfil ?? '—'
+                      )}
+                    </DetalleCampo>
+                  </>
+                )}
+              </DetalleSeccion>
+
+              <DetalleSeccion title="Detalles del vehículo">
+                {!s.flota_unidad_id && !s.flota_unidad_resumen ? (
+                  <div className="py-4 text-sm text-slate-600">Sin unidad de flota asociada.</div>
+                ) : (
+                  <>
+                    <DetalleCampo label="Resumen guardado en la solicitud">
+                      {s.flota_unidad_resumen?.trim() || '—'}
+                    </DetalleCampo>
+                    {loadingExtra ? (
+                      <div className="py-3 text-sm text-slate-400">Cargando datos de la unidad…</div>
+                    ) : extraOk?.unidad ? (
+                      <>
+                        <DetalleCampo label="Tipo de unidad">{extraOk.unidad.tipo_unidad || '—'}</DetalleCampo>
+                        <DetalleCampo label="Placas">{extraOk.unidad.placas || '—'}</DetalleCampo>
+                        <DetalleCampo label="Número económico">{extraOk.unidad.numero_economico ?? '—'}</DetalleCampo>
+                      </>
+                    ) : s.flota_unidad_id ? (
+                      <div className="py-3 text-sm text-amber-800">
+                        No se pudo cargar el registro de la unidad (puede haber sido eliminada).
+                      </div>
+                    ) : null}
+                  </>
+                )}
+              </DetalleSeccion>
+
+              {extra === 'error' && (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  No se pudieron cargar algunos datos del cliente o transportista. El resto de la información es la
+                  guardada en la solicitud.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export function AdminSolicitudesPage() {
   const sb = getSupabase()
@@ -143,6 +449,8 @@ export function AdminSolicitudesPage() {
   const [rejectBusy, setRejectBusy] = useState(false)
   const [rejectErr, setRejectErr] = useState('')
 
+  const [detailTarget, setDetailTarget] = useState<Solicitud | null>(null)
+
   const load = useCallback(async () => {
     if (!sb) return
     const primary =
@@ -153,7 +461,7 @@ export function AdminSolicitudesPage() {
     let q = sb
       .from('solicitudes_servicio')
       .select(
-        'id, created_at, user_id, titulo, descripcion, fecha_servicio, origen, destino, peso_carga, dimensiones_carga, estado, transportista_user_id, transportista_contacto, flota_unidad_id, flota_unidad_resumen',
+        'id, created_at, user_id, titulo, descripcion, fecha_servicio, carga_programada, entrega_ventana_inicio, entrega_ventana_fin, origen, destino, peso_carga, dimensiones_carga, estado, transportista_user_id, transportista_contacto, flota_unidad_id, flota_unidad_resumen',
       )
       .order(primary.column, { ascending: primary.ascending })
 
@@ -186,6 +494,14 @@ export function AdminSolicitudesPage() {
         titulo: String(s.titulo ?? ''),
         descripcion: s.descripcion != null ? String(s.descripcion) : null,
         fecha_servicio: String(s.fecha_servicio ?? '').slice(0, 10),
+        carga_programada:
+          'carga_programada' in s && s.carga_programada != null ? String(s.carga_programada) : null,
+        entrega_ventana_inicio:
+          'entrega_ventana_inicio' in s && s.entrega_ventana_inicio != null
+            ? String(s.entrega_ventana_inicio)
+            : null,
+        entrega_ventana_fin:
+          'entrega_ventana_fin' in s && s.entrega_ventana_fin != null ? String(s.entrega_ventana_fin) : null,
         origen: s.origen != null ? String(s.origen) : null,
         destino: s.destino != null ? String(s.destino) : null,
         peso_carga: 'peso_carga' in s && s.peso_carga != null ? String(s.peso_carga) : null,
@@ -268,6 +584,7 @@ export function AdminSolicitudesPage() {
   }, [sb, selectedTransportistaId])
 
   async function openApprove(s: Solicitud) {
+    setDetailTarget(null)
     setActionErr('')
     setMailInfo('')
     setApproveErr('')
@@ -439,6 +756,7 @@ export function AdminSolicitudesPage() {
 
   function openRejectModal(s: Solicitud) {
     if (s.estado !== 'pendiente') return
+    setDetailTarget(null)
     setActionErr('')
     setMailInfo('')
     setRejectErr('')
@@ -515,6 +833,7 @@ export function AdminSolicitudesPage() {
 
   function openCancelModal(s: Solicitud) {
     if (s.estado !== 'asignado' || !s.transportista_user_id) return
+    setDetailTarget(null)
     setCancelErr('')
     setCancelTarget(s)
   }
@@ -605,6 +924,7 @@ export function AdminSolicitudesPage() {
 
   function openRevertModal(s: Solicitud) {
     if (s.estado !== 'rechazada') return
+    setDetailTarget(null)
     setActionErr('')
     setMailInfo('')
     setRevertErr('')
@@ -645,39 +965,68 @@ export function AdminSolicitudesPage() {
     await load()
   }
 
-  function exportSolicitudesExcel() {
-    if (rows.length === 0) return
+  async function exportSolicitudesExcel() {
+    if (rows.length === 0 || !sb) return
+    const extras = await Promise.all(rows.map((r) => fetchDetalleExtra(sb, r)))
     downloadAdminXlsx({
       fileBaseName: 'translogix-solicitudes',
       sheetName: 'Solicitudes',
       headers: [
-        'Alta',
-        'Usuario (correo)',
-        'Fecha servicio',
+        'Alta solicitud',
+        'Estado',
         'Título',
         'Descripción',
+        'Cliente — correo',
+        'Cliente — nombre / razón social',
+        'Cliente — teléfono',
+        'Fecha servicio',
+        'Hora de carga',
+        'Entrega desde',
+        'Entrega hasta',
         'Origen',
         'Destino',
         'Peso carga',
         'Dimensiones',
-        'Transportista asignado',
-        'Unidad',
-        'Estado',
+        'Transportista — nombre en solicitud',
+        'Transportista — razón social',
+        'Transportista — RFC',
+        'Transportista — teléfono',
+        'Transportista — correo (perfil)',
+        'Vehículo — resumen',
+        'Vehículo — tipo de unidad',
+        'Vehículo — placas',
+        'Vehículo — número económico',
       ],
-      rows: rows.map((r) => [
-        formatIngreso(r.created_at),
-        r.perfil_email ?? r.user_id,
-        r.fecha_servicio,
-        r.titulo,
-        r.descripcion ?? '',
-        r.origen ?? '',
-        r.destino ?? '',
-        r.peso_carga ?? '',
-        r.dimensiones_carga ?? '',
-        r.transportista_contacto ?? '',
-        r.flota_unidad_resumen ?? '',
-        solicitudServicioEstadoLabel(r.estado),
-      ]),
+      rows: rows.map((r, i) => {
+        const e = extras[i]!
+        const u = e.unidad
+        return [
+          formatIngreso(r.created_at),
+          solicitudServicioEstadoLabel(r.estado),
+          r.titulo,
+          r.descripcion ?? '',
+          e.clienteEmail ?? r.perfil_email ?? '',
+          e.clienteNombre,
+          e.clienteTelefono ?? '',
+          r.fecha_servicio,
+          r.carga_programada ? formatoInstanteLocal(r.carga_programada) : '',
+          r.entrega_ventana_inicio ? formatoInstanteLocal(r.entrega_ventana_inicio) : '',
+          r.entrega_ventana_fin ? formatoInstanteLocal(r.entrega_ventana_fin) : '',
+          r.origen ?? '',
+          r.destino ?? '',
+          r.peso_carga ?? '',
+          r.dimensiones_carga ?? '',
+          r.transportista_contacto ?? '',
+          e.transportistaRazonSocial ?? '',
+          e.transportistaRfc ?? '',
+          e.transportistaTelefono ?? '',
+          e.transportistaEmailPerfil ?? '',
+          r.flota_unidad_resumen ?? '',
+          u?.tipo_unidad ?? '',
+          u?.placas ?? '',
+          u?.numero_economico ?? '',
+        ]
+      }),
     })
   }
 
@@ -688,10 +1037,11 @@ export function AdminSolicitudesPage() {
     <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10">
       <h1 className="mb-2 text-xl font-bold text-slate-800 sm:text-2xl">Solicitudes de servicio</h1>
       <p className="mb-4 max-w-3xl text-sm text-slate-600">
-        Aprueba eligiendo transportista (razón social del registro) y la unidad de su flota; se envían correos al
-        cliente y al transportista. Una vez asignada, puedes cancelar la asignación (vuelve a pendiente y se notifica de
-        nuevo; puedes repetir el proceso sin límite). Rechazar deja la solicitud como rechazada y se envía un correo al
-        cliente; desde rechazada puedes revertir a pendiente (sin correo en ese paso).
+        Cada tarjeta resume lo esencial para ubicar el viaje. Usa el icono del ojo para ver descripción completa,
+        peso, dimensiones e identificadores. Para <strong className="text-slate-800">aprobar</strong> elige
+        transportista y unidad de flota (se notifica por correo). Puedes <strong className="text-slate-800">cancelar</strong>{' '}
+        una asignación (vuelve a pendiente), <strong className="text-slate-800">rechazar</strong> pendientes o{' '}
+        <strong className="text-slate-800">revertir</strong> un rechazo a pendiente.
       </p>
 
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -715,7 +1065,7 @@ export function AdminSolicitudesPage() {
         {!loading && !loadErr && rows.length > 0 && (
           <button
             type="button"
-            onClick={() => exportSolicitudesExcel()}
+            onClick={() => void exportSolicitudesExcel()}
             className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-emerald-700/30 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-900 transition hover:bg-emerald-100"
           >
             <i className="fas fa-file-excel" aria-hidden />
@@ -741,101 +1091,146 @@ export function AdminSolicitudesPage() {
       )}
 
       {!loading && !loadErr && rows.length > 0 && (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-          <table className="min-w-full text-left text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-              <tr>
-                <th className="px-4 py-3">Alta</th>
-                <th className="px-4 py-3">Usuario</th>
-                <th className="px-4 py-3">Fecha servicio</th>
-                <th className="px-4 py-3">Título</th>
-                <th className="px-4 py-3">Origen / destino</th>
-                <th className="px-4 py-3">Peso / dimensiones</th>
-                <th className="px-4 py-3">Transporte / unidad</th>
-                <th className="px-4 py-3">Estado</th>
-                <th className="px-4 py-3">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.id} className="border-b border-slate-100 last:border-0">
-                  <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatIngreso(r.created_at)}</td>
-                  <td className="px-4 py-3 text-slate-700">{r.perfil_email ?? r.user_id.slice(0, 8) + '…'}</td>
-                  <td className="whitespace-nowrap px-4 py-3 font-medium">{r.fecha_servicio}</td>
-                  <td className="max-w-[220px] px-4 py-3">
-                    <div className="font-medium text-slate-800">{r.titulo}</div>
-                    {r.descripcion && <p className="mt-1 line-clamp-2 text-xs text-slate-500">{r.descripcion}</p>}
-                  </td>
-                  <td className="max-w-[180px] px-4 py-3 text-xs text-slate-600">
-                    {[r.origen, r.destino].filter(Boolean).join(' → ') || '—'}
-                  </td>
-                  <td className="max-w-[160px] px-4 py-3 text-xs text-slate-600">
-                    {[r.peso_carga, r.dimensiones_carga].filter(Boolean).join(' · ') || '—'}
-                  </td>
-                  <td className="max-w-[200px] px-4 py-3 text-xs text-slate-700">
-                    <div className="font-medium text-slate-800">
-                      {r.transportista_contacto ?? (r.transportista_user_id ? r.transportista_user_id.slice(0, 8) + '…' : '—')}
+        <>
+          <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+            {rows.map((r) => {
+              const ruta = [r.origen, r.destino].filter(Boolean).join(' → ') || '—'
+              const clienteLabel = r.perfil_email ?? `${r.user_id.slice(0, 8)}…`
+              return (
+                <article
+                  key={r.id}
+                  className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md"
+                >
+                  <header className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">{solicitudServicioEstadoBadge(r.estado)}</div>
+                      <h2 className="text-base font-semibold leading-snug text-slate-900">{r.titulo}</h2>
                     </div>
-                    {r.flota_unidad_resumen && (
-                      <div className="mt-0.5 text-slate-600">{r.flota_unidad_resumen}</div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">{solicitudServicioEstadoBadge(r.estado)}</td>
-                  <td className="whitespace-nowrap px-4 py-3">
-                    {r.estado === 'pendiente' ? (
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          disabled={tableActionsLocked}
-                          onClick={() => void openApprove(r)}
-                          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-                        >
-                          Aprobar
-                        </button>
-                        <button
-                          type="button"
-                          disabled={tableActionsLocked}
-                          onClick={() => openRejectModal(r)}
-                          className="rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
-                        >
-                          Rechazar
-                        </button>
+                    <button
+                      type="button"
+                      onClick={() => setDetailTarget(r)}
+                      className="shrink-0 rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-slate-600 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-800"
+                      title="Ver detalle completo"
+                      aria-label="Ver detalle completo"
+                    >
+                      <i className="fas fa-eye text-lg" aria-hidden />
+                    </button>
+                  </header>
+
+                  <div className="flex flex-1 flex-col gap-2.5 pt-3 text-sm">
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Servicio</p>
+                      <p className="font-semibold text-slate-800">{r.fecha_servicio}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Hora de carga</p>
+                      <p className="text-slate-700">
+                        {r.carga_programada ? formatoInstanteLocal(r.carga_programada) : '—'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Entrega</p>
+                      <p className="text-slate-700">
+                        {r.entrega_ventana_inicio && r.entrega_ventana_fin ? (
+                          <>
+                            {formatoInstanteLocal(r.entrega_ventana_inicio)} →{' '}
+                            {formatoInstanteLocal(r.entrega_ventana_fin)}
+                          </>
+                        ) : (
+                          '—'
+                        )}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Ruta</p>
+                      <p className="line-clamp-2 text-slate-700" title={ruta}>
+                        {ruta}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Cliente</p>
+                      <p className="truncate text-slate-700" title={clienteLabel}>
+                        {clienteLabel}
+                      </p>
+                    </div>
+                    {(r.transportista_contacto || r.flota_unidad_resumen || r.transportista_user_id) && (
+                      <div>
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Asignación</p>
+                        <p className="font-medium text-slate-800">
+                          {r.transportista_contacto ??
+                            (r.transportista_user_id ? `${r.transportista_user_id.slice(0, 8)}…` : '—')}
+                        </p>
+                        {r.flota_unidad_resumen && (
+                          <p className="mt-0.5 text-xs text-slate-600">{r.flota_unidad_resumen}</p>
+                        )}
                       </div>
-                    ) : r.estado === 'asignado' ? (
-                      <button
-                        type="button"
-                        disabled={tableActionsLocked}
-                        onClick={() => {
-                          setActionErr('')
-                          setMailInfo('')
-                          openCancelModal(r)
-                        }}
-                        className="rounded-lg border border-slate-400 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-                      >
-                        Cancelar asignación
-                      </button>
-                    ) : r.estado === 'rechazada' ? (
-                      <button
-                        type="button"
-                        disabled={tableActionsLocked}
-                        onClick={() => {
-                          setActionErr('')
-                          setMailInfo('')
-                          openRevertModal(r)
-                        }}
-                        className="rounded-lg border border-blue-300 bg-white px-3 py-1.5 text-xs font-semibold text-blue-800 hover:bg-blue-50 disabled:opacity-50"
-                      >
-                        Revertir
-                      </button>
-                    ) : (
-                      <span className="text-xs text-slate-400">—</span>
                     )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  </div>
+
+                  <footer className="mt-4 flex flex-col gap-3 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-xs text-slate-500">
+                      Alta: <span className="font-medium text-slate-600">{formatIngreso(r.created_at)}</span>
+                    </p>
+                    <div className="flex flex-wrap justify-end gap-2">
+                      {r.estado === 'pendiente' ? (
+                        <>
+                          <button
+                            type="button"
+                            disabled={tableActionsLocked}
+                            onClick={() => void openApprove(r)}
+                            className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                          >
+                            Aprobar
+                          </button>
+                          <button
+                            type="button"
+                            disabled={tableActionsLocked}
+                            onClick={() => openRejectModal(r)}
+                            className="rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+                          >
+                            Rechazar
+                          </button>
+                        </>
+                      ) : r.estado === 'asignado' ? (
+                        <button
+                          type="button"
+                          disabled={tableActionsLocked}
+                          onClick={() => {
+                            setActionErr('')
+                            setMailInfo('')
+                            openCancelModal(r)
+                          }}
+                          className="rounded-lg border border-slate-400 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                        >
+                          Cancelar asignación
+                        </button>
+                      ) : r.estado === 'rechazada' ? (
+                        <button
+                          type="button"
+                          disabled={tableActionsLocked}
+                          onClick={() => {
+                            setActionErr('')
+                            setMailInfo('')
+                            openRevertModal(r)
+                          }}
+                          className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-xs font-semibold text-blue-800 hover:bg-blue-50 disabled:opacity-50"
+                        >
+                          Revertir
+                        </button>
+                      ) : (
+                        <span className="text-xs text-slate-400">Sin acciones</span>
+                      )}
+                    </div>
+                  </footer>
+                </article>
+              )
+            })}
+          </div>
+
+          {detailTarget && sb ? (
+            <SolicitudDetalleModal sb={sb} s={detailTarget} onClose={() => setDetailTarget(null)} />
+          ) : null}
+        </>
       )}
 
       {approveTarget && (

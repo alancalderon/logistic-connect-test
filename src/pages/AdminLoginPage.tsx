@@ -13,7 +13,7 @@ export function AdminLoginPage() {
 
   const sb = getSupabase()
 
-  const redirectAfterAuth = `${window.location.origin}/admin/waitlist`
+  const redirectAfterAuth = `${window.location.origin}/admin/solicitudes`
 
   async function onLogin(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -32,7 +32,7 @@ export function AdminLoginPage() {
       setMsgLogin(error.message === 'Invalid login credentials' ? 'Correo o contraseña incorrectos.' : error.message)
       return
     }
-    navigate('/admin/waitlist', { replace: true })
+    navigate('/admin/solicitudes', { replace: true })
   }
 
   async function onRegister(e: FormEvent<HTMLFormElement>) {
@@ -75,7 +75,7 @@ export function AdminLoginPage() {
     }
 
     if (data.session) {
-      navigate('/admin/waitlist', { replace: true })
+      navigate('/admin/solicitudes', { replace: true })
       return
     }
 

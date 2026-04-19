@@ -81,7 +81,7 @@ export function LoginPage() {
     }
     if (profile.is_admin) {
       setBusy(false)
-      navigate('/admin/waitlist', { replace: true })
+      navigate('/admin/solicitudes', { replace: true })
       return
     }
     if (profile.cuenta_estado !== 'activa') {
@@ -96,12 +96,12 @@ export function LoginPage() {
     }
     if (profile.tipo_cuenta === 'cliente') {
       setBusy(false)
-      navigate('/panel/cliente/solicitudes', { replace: true })
+      navigate('/panel/cliente/nueva-solicitud', { replace: true })
       return
     }
     if (profile.tipo_cuenta === 'transportista') {
       setBusy(false)
-      navigate('/panel/transportista/flota', { replace: true })
+      navigate('/panel/transportista/viajes', { replace: true })
       return
     }
     await sb.auth.signOut()

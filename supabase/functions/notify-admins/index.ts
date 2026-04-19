@@ -180,7 +180,7 @@ Deno.serve(async (req) => {
       const { data: row, error } = await admin
         .from('solicitudes_servicio')
         .select(
-          'id, titulo, fecha_servicio, origen, destino, descripcion, peso_carga, dimensiones_carga, user_id',
+          'id, titulo, fecha_servicio, carga_programada, entrega_ventana_inicio, entrega_ventana_fin, origen, destino, descripcion, peso_carga, dimensiones_carga, user_id',
         )
         .eq('id', sid)
         .maybeSingle()
@@ -191,12 +191,24 @@ Deno.serve(async (req) => {
         })
       }
       subject = 'TransLogix — nueva solicitud de servicio'
+      const r = row as {
+        carga_programada?: string | null
+        entrega_ventana_inicio?: string | null
+        entrega_ventana_fin?: string | null
+      }
+      const cargaTxt = r.carga_programada ? formatNotifyMx(r.carga_programada) : '—'
+      const ventanaTxt =
+        r.entrega_ventana_inicio && r.entrega_ventana_fin
+          ? `${formatNotifyMx(r.entrega_ventana_inicio)} → ${formatNotifyMx(r.entrega_ventana_fin)}`
+          : '—'
       html = `
 <p>Hola,</p>
 <p>Un <strong>cliente</strong> registró una nueva <strong>solicitud de servicio</strong>.</p>
 <ul>
   <li><strong>Título:</strong> ${escapeHtml(String(row.titulo ?? ''))}</li>
   <li><strong>Fecha del servicio:</strong> ${escapeHtml(String(row.fecha_servicio ?? ''))}</li>
+  <li><strong>Hora de carga:</strong> ${escapeHtml(cargaTxt)}</li>
+  <li><strong>Ventana de entrega:</strong> ${escapeHtml(ventanaTxt)}</li>
   <li><strong>Origen:</strong> ${escapeHtml(String(row.origen ?? '—'))}</li>
   <li><strong>Destino:</strong> ${escapeHtml(String(row.destino ?? '—'))}</li>
   <li><strong>Peso de la carga:</strong> ${escapeHtml(String((row as { peso_carga?: string | null }).peso_carga ?? '—'))}</li>
@@ -272,4 +284,11 @@ function escapeHtml(s: string) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
+}
+
+/** ISO timestamptz → texto legible (zona UTC del servidor; suficiente para correo interno). */
+function formatNotifyMx(iso: string): string {
+  const t = new Date(iso).getTime()
+  if (!Number.isFinite(t)) return iso
+  return new Date(iso).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Tijuana' })
 }

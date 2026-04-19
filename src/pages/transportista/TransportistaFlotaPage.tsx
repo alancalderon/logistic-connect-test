@@ -1,6 +1,6 @@
-import { type FormEvent, useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { getSupabase } from '@/lib/supabase'
-import { inputClass, labelClass } from '@/lib/formStyles'
 
 type FlotaRow = {
   id: string
@@ -14,7 +14,6 @@ export function TransportistaFlotaPage() {
   const sb = getSupabase()
   const [rows, setRows] = useState<FlotaRow[]>([])
   const [msg, setMsg] = useState('')
-  const [saving, setSaving] = useState(false)
 
   const load = useCallback(async () => {
     if (!sb) return
@@ -26,6 +25,7 @@ export function TransportistaFlotaPage() {
       setMsg(error.message)
       return
     }
+    setMsg('')
     setRows((data ?? []) as FlotaRow[])
   }, [sb])
 
@@ -33,86 +33,42 @@ export function TransportistaFlotaPage() {
     void load()
   }, [load])
 
-  async function onAdd(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    const form = e.currentTarget
-    setMsg('')
-    if (!sb) return
-    const { data: s } = await sb.auth.getSession()
-    const uid = s.session?.user?.id
-    if (!uid) return
-    const fd = new FormData(form)
-    const tipo = String(fd.get('tipo_unidad') ?? '')
-    const placas = String(fd.get('placas') ?? '').trim().toUpperCase()
-    if (!tipo || !placas) {
-      setMsg('Tipo de unidad y placas son obligatorios.')
-      return
-    }
-    setSaving(true)
-    const { error } = await sb.from('flota_unidades').insert({
-      user_id: uid,
-      tipo_unidad: tipo,
-      placas,
-      numero_economico: String(fd.get('numero_economico') ?? '').trim() || null,
-    })
-    setSaving(false)
-    if (error) {
-      setMsg(error.message)
-      return
-    }
-    form.reset()
-    await load()
-  }
-
   return (
     <main className="mx-auto max-w-4xl px-4 py-8 sm:px-6 sm:py-10">
-      <h1 className="mb-2 text-2xl font-bold text-slate-800">Mi flota</h1>
-      <p className="mb-8 text-sm text-slate-600">
-        Añade las unidades que operas en la red. El equipo las verá en el panel de administración.
-      </p>
-
-      <div className="mb-10 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-        <h2 className="mb-4 text-lg font-bold text-slate-800">Agregar unidad</h2>
-        <form className="grid gap-4 sm:grid-cols-2" onSubmit={(ev) => void onAdd(ev)}>
-          <div>
-            <label className={labelClass}>Tipo de unidad</label>
-            <select name="tipo_unidad" required className={inputClass}>
-              <option value="">Selecciona…</option>
-              <option value="caja-seca">Caja seca</option>
-              <option value="plataforma">Plataforma / flatbed</option>
-              <option value="refrigerado">Refrigerado</option>
-              <option value="rabon">Rabón / torton</option>
-              <option value="otro">Otro</option>
-            </select>
-          </div>
-          <div>
-            <label className={labelClass}>Placas</label>
-            <input name="placas" required className={`${inputClass} uppercase`} placeholder="ABC-12-34" />
-          </div>
-          <div className="sm:col-span-2">
-            <label className={labelClass}>Número económico (opcional)</label>
-            <input name="numero_economico" className={inputClass} placeholder="Eco-1024" />
-          </div>
-          {msg && <p className="text-sm text-red-600 sm:col-span-2">{msg}</p>}
-          <div className="sm:col-span-2">
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-xl bg-slate-800 px-6 py-3 font-semibold text-white hover:bg-slate-900 disabled:opacity-60"
-            >
-              {saving ? 'Guardando…' : 'Añadir a la flota'}
-            </button>
-          </div>
-        </form>
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="mb-2 text-2xl font-bold text-slate-800">Mi flota</h1>
+          <p className="max-w-xl text-sm text-slate-600">
+            Listado de las unidades que tienes registradas. Operaciones las usa al asignarte servicios; en{' '}
+            <Link to="/panel/transportista/viajes" className="font-semibold text-blue-600 underline-offset-2 hover:underline">
+              Mis viajes
+            </Link>{' '}
+            verás con qué unidad te asignaron cada entrega.
+          </p>
+        </div>
+        <Link
+          to="/panel/transportista/agregar-vehiculo"
+          className="inline-flex shrink-0 items-center justify-center rounded-xl bg-slate-800 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-slate-900"
+        >
+          Agregar vehículo
+        </Link>
       </div>
+
+      {msg && <p className="mb-4 text-sm text-red-600">{msg}</p>}
 
       <h2 className="mb-3 text-lg font-bold text-slate-800">Unidades registradas</h2>
       {rows.length === 0 ? (
-        <p className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
-          Aún no añades unidades. Usa el formulario de arriba.
-        </p>
+        <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
+          <p className="mb-3">Aún no tienes vehículos en tu flota.</p>
+          <Link
+            to="/panel/transportista/agregar-vehiculo"
+            className="font-semibold text-blue-600 underline-offset-2 hover:underline"
+          >
+            Agregar tu primer vehículo
+          </Link>
+        </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
           <table className="min-w-full text-left text-sm">
             <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
               <tr>

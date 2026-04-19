@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { Outlet, useNavigate } from 'react-router-dom'
+import { PanelNavBar } from '@/components/PanelNavBar'
 import { fetchAppProfile } from '@/lib/profile'
 import { getSupabase } from '@/lib/supabase'
 
@@ -7,6 +8,7 @@ export function ClientePanelLayout() {
   const navigate = useNavigate()
   const sb = getSupabase()
   const [ready, setReady] = useState(false)
+  const [email, setEmail] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -36,6 +38,7 @@ export function ClientePanelLayout() {
         navigate('/iniciar-sesion?info=rechazada', { replace: true })
         return
       }
+      setEmail(s.session.user.email?.trim() ?? '')
       setReady(true)
     })()
     return () => {
@@ -58,42 +61,18 @@ export function ClientePanelLayout() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
-      <nav className="border-b border-slate-200 bg-white shadow-sm">
-        <div className="mx-auto flex max-w-4xl flex-col gap-3 px-4 py-3 sm:h-auto sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <div className="flex items-center justify-between gap-3">
-            <Link to="/" className="text-lg font-bold text-blue-600 no-underline">
-              Trans<span className="text-slate-800">Logix</span>
-            </Link>
-            <button
-              type="button"
-              onClick={() => void logout()}
-              className="text-sm font-medium text-slate-600 hover:text-slate-900 sm:hidden"
-            >
-              Salir
-            </button>
-          </div>
-          <div className="flex flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1">
-            <NavLink
-              to="/panel/cliente/solicitudes"
-              end
-              className={({ isActive }) =>
-                `rounded-lg px-3 py-2 text-sm font-semibold transition sm:px-4 ${
-                  isActive ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'
-                }`
-              }
-            >
-              Mis solicitudes
-            </NavLink>
-          </div>
-          <button
-            type="button"
-            onClick={() => void logout()}
-            className="hidden text-sm font-medium text-slate-600 hover:text-slate-900 sm:block"
-          >
-            Cerrar sesión
-          </button>
-        </div>
-      </nav>
+      <PanelNavBar
+        subtitle="Panel de cliente"
+        contentMaxWidth="max-w-4xl"
+        accent="cliente"
+        accountHref="/panel/cliente/usuario"
+        email={email}
+        onLogout={() => void logout()}
+        primaryItems={[
+          { to: '/panel/cliente/nueva-solicitud', label: 'Nueva solicitud' },
+          { to: '/panel/cliente/historial', label: 'Historial' },
+        ]}
+      />
       <Outlet />
     </div>
   )

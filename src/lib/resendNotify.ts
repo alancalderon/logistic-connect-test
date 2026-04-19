@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { formatoInstanteLocal } from '@/lib/solicitudHorarios'
 
 /** Origen del navegador (vacío fuera del cliente). */
 function appOrigin() {
@@ -121,6 +122,9 @@ export type SolicitudCorreoDetalle = {
   descripcion: string | null
   peso_carga: string | null
   dimensiones_carga: string | null
+  carga_programada: string | null
+  entrega_ventana_inicio: string | null
+  entrega_ventana_fin: string | null
 }
 
 /** Texto seguro en cuerpo HTML (no atributos); preserva saltos de línea. */
@@ -133,6 +137,15 @@ function solicitudDetalleTableHtml(d: SolicitudCorreoDetalle): string {
     ['Título', d.titulo],
     ['Fecha del servicio', d.fecha_servicio],
   ]
+  if (d.carga_programada?.trim()) {
+    rows.push(['Hora de carga', formatoInstanteLocal(d.carga_programada)])
+  }
+  if (d.entrega_ventana_inicio?.trim() && d.entrega_ventana_fin?.trim()) {
+    rows.push([
+      'Ventana de entrega',
+      `${formatoInstanteLocal(d.entrega_ventana_inicio)} → ${formatoInstanteLocal(d.entrega_ventana_fin)}`,
+    ])
+  }
   if (d.origen?.trim()) rows.push(['Origen', d.origen.trim()])
   if (d.destino?.trim()) rows.push(['Destino', d.destino.trim()])
   if (d.peso_carga?.trim()) rows.push(['Peso de la carga', d.peso_carga.trim()])
@@ -149,14 +162,14 @@ function solicitudDetalleTableHtml(d: SolicitudCorreoDetalle): string {
   return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;margin:16px 0;">${tr}</table>`
 }
 
-function panelClienteSolicitudesUrl(): string {
+function panelClienteHistorialSolicitudesUrl(): string {
   const base = publicSiteBaseUrl()
-  return base ? `${base}/panel/cliente/solicitudes` : '/panel/cliente/solicitudes'
+  return base ? `${base}/panel/cliente/historial` : '/panel/cliente/historial'
 }
 
 function panelTransportistaUrl(): string {
   const base = publicSiteBaseUrl()
-  return base ? `${base}/panel/transportista/flota` : '/panel/transportista/flota'
+  return base ? `${base}/panel/transportista/viajes` : '/panel/transportista/viajes'
 }
 
 function buildHtmlSolicitudAprobadaCliente(params: {
@@ -165,7 +178,7 @@ function buildHtmlSolicitudAprobadaCliente(params: {
   transportistaNombre: string
   unidadResumen: string
 }) {
-  const panelUrl = panelClienteSolicitudesUrl()
+  const panelUrl = panelClienteHistorialSolicitudesUrl()
   const inner = `
     <p style="margin:0 0 12px;font-size:17px;color:#0f172a;">Hola, <strong>${escapeAttr(params.nombre)}</strong></p>
     <p style="margin:0 0 16px;">Tu <strong>solicitud de servicio</strong> fue <strong style="color:#15803d;">aceptada</strong> y ya tiene transportista y unidad asignadas.</p>
@@ -179,7 +192,7 @@ function buildHtmlSolicitudAprobadaCliente(params: {
     accent: 'success',
     title: 'Solicitud de servicio aceptada',
     innerHtml: inner,
-    ctaLabel: 'Ver mis solicitudes',
+    ctaLabel: 'Ver historial',
     ctaHref: panelUrl,
     footerNote: footer,
   })
@@ -205,14 +218,14 @@ function buildHtmlSolicitudAprobadaTransportista(params: {
     accent: 'success',
     title: 'Nuevo servicio asignado',
     innerHtml: inner,
-    ctaLabel: 'Ir a mi panel',
+    ctaLabel: 'Ver mis viajes',
     ctaHref: panelUrl,
     footerNote: footer,
   })
 }
 
 function buildHtmlSolicitudCancelacionCliente(params: { nombre: string; det: SolicitudCorreoDetalle }) {
-  const panelUrl = panelClienteSolicitudesUrl()
+  const panelUrl = panelClienteHistorialSolicitudesUrl()
   const inner = `
     <p style="margin:0 0 12px;font-size:17px;color:#0f172a;">Hola, <strong>${escapeAttr(params.nombre)}</strong></p>
     <p style="margin:0 0 16px;">La <strong>asignación de transporte</strong> de tu solicitud de servicio fue <strong>cancelada</strong> por operaciones.</p>
@@ -224,14 +237,14 @@ function buildHtmlSolicitudCancelacionCliente(params: { nombre: string; det: Sol
     accent: 'neutral',
     title: 'Asignación cancelada',
     innerHtml: inner,
-    ctaLabel: 'Ver mis solicitudes',
+    ctaLabel: 'Ver historial',
     ctaHref: panelUrl,
     footerNote: footer,
   })
 }
 
 function buildHtmlSolicitudServicioRechazadaCliente(params: { nombre: string; det: SolicitudCorreoDetalle }) {
-  const panelUrl = panelClienteSolicitudesUrl()
+  const panelUrl = panelClienteHistorialSolicitudesUrl()
   const inner = `
     <p style="margin:0 0 12px;font-size:17px;color:#0f172a;">Hola, <strong>${escapeAttr(params.nombre)}</strong></p>
     <p style="margin:0 0 16px;">Tu <strong>solicitud de servicio</strong> fue <strong>rechazada</strong> por operaciones y no continuará en el flujo de asignación.</p>
@@ -243,7 +256,7 @@ function buildHtmlSolicitudServicioRechazadaCliente(params: { nombre: string; de
     accent: 'neutral',
     title: 'Solicitud de servicio rechazada',
     innerHtml: inner,
-    ctaLabel: 'Ver mis solicitudes',
+    ctaLabel: 'Ver historial',
     ctaHref: panelUrl,
     footerNote: footer,
   })
@@ -262,7 +275,7 @@ function buildHtmlSolicitudCancelacionTransportista(params: { nombre: string; de
     accent: 'neutral',
     title: 'Asignación de servicio cancelada',
     innerHtml: inner,
-    ctaLabel: 'Ir a mi panel',
+    ctaLabel: 'Ver mis viajes',
     ctaHref: panelUrl,
     footerNote: footer,
   })

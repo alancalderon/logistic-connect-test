@@ -1,49 +1,18 @@
-import { type FormEvent, useCallback, useEffect, useState } from 'react'
+import { type FormEvent, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { notifyAdminsNuevaSolicitudServicio } from '@/lib/notifyAdmins'
+import {
+  combinarFechaYHoraLocalAFechaIso,
+  validarVentanaEntrega,
+} from '@/lib/solicitudHorarios'
 import { getSupabase } from '@/lib/supabase'
 import { inputClass, labelClass } from '@/lib/formStyles'
-import { solicitudServicioEstadoBadge } from '@/lib/solicitudServicioUi'
 
-type SolicitudRow = {
-  id: string
-  created_at: string
-  titulo: string
-  descripcion: string | null
-  fecha_servicio: string
-  origen: string | null
-  destino: string | null
-  peso_carga: string | null
-  dimensiones_carga: string | null
-  estado: string
-  transportista_contacto: string | null
-  flota_unidad_resumen: string | null
-}
-
-export function ClienteSolicitudesPage() {
+export function ClienteNuevaSolicitudPage() {
   const sb = getSupabase()
-  const [rows, setRows] = useState<SolicitudRow[]>([])
   const [msg, setMsg] = useState('')
   const [okMsg, setOkMsg] = useState('')
   const [saving, setSaving] = useState(false)
-
-  const load = useCallback(async () => {
-    if (!sb) return
-    const { data, error } = await sb
-      .from('solicitudes_servicio')
-      .select(
-        'id, created_at, titulo, descripcion, fecha_servicio, origen, destino, peso_carga, dimensiones_carga, estado, transportista_contacto, flota_unidad_resumen',
-      )
-      .order('fecha_servicio', { ascending: true })
-    if (error) {
-      setMsg(error.message)
-      return
-    }
-    setRows((data ?? []) as SolicitudRow[])
-  }, [sb])
-
-  useEffect(() => {
-    void load()
-  }, [load])
 
   async function onCreate(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -63,10 +32,31 @@ export function ClienteSolicitudesPage() {
     const fd = new FormData(form)
     const titulo = String(fd.get('titulo') ?? '').trim()
     const fecha = String(fd.get('fecha_servicio') ?? '')
+    const horaCarga = String(fd.get('hora_carga') ?? '').trim()
+    const entregaDesde = String(fd.get('entrega_ventana_desde') ?? '')
+    const entregaHasta = String(fd.get('entrega_ventana_hasta') ?? '')
+
     if (!titulo || !fecha) {
       setMsg('Título y fecha del servicio son obligatorios.')
       return
     }
+    if (!horaCarga) {
+      setMsg('Indica la hora de carga (hora del servicio).')
+      return
+    }
+
+    const cargaIso = combinarFechaYHoraLocalAFechaIso(fecha, horaCarga)
+    if (!cargaIso) {
+      setMsg('La fecha u hora de carga no son válidas.')
+      return
+    }
+
+    const ventana = validarVentanaEntrega(entregaDesde, entregaHasta)
+    if (!ventana.ok) {
+      setMsg(ventana.error)
+      return
+    }
+
     setSaving(true)
     const { data: inserted, error } = await sb
       .from('solicitudes_servicio')
@@ -75,6 +65,9 @@ export function ClienteSolicitudesPage() {
         titulo,
         descripcion: String(fd.get('descripcion') ?? '').trim() || null,
         fecha_servicio: fecha,
+        carga_programada: cargaIso,
+        entrega_ventana_inicio: ventana.inicio,
+        entrega_ventana_fin: ventana.fin,
         origen: String(fd.get('origen') ?? '').trim() || null,
         destino: String(fd.get('destino') ?? '').trim() || null,
         peso_carga: String(fd.get('peso_carga') ?? '').trim() || null,
@@ -92,19 +85,24 @@ export function ClienteSolicitudesPage() {
       void notifyAdminsNuevaSolicitudServicio(sb, String(inserted.id))
     }
     form.reset()
-    await load()
   }
 
   return (
     <main className="mx-auto max-w-4xl px-4 py-8 sm:px-6 sm:py-10">
-      <h1 className="mb-2 text-2xl font-bold text-slate-800">Mis solicitudes de servicio</h1>
+      <h1 className="mb-2 text-2xl font-bold text-slate-800">Nueva solicitud de servicio</h1>
+      <p className="mb-2 text-sm text-slate-600">
+        Registra la <strong>fecha</strong> del servicio, la <strong>hora de carga</strong> y la{' '}
+        <strong>ventana de entrega</strong> (inicio y fin). El equipo lo verá en administración.
+      </p>
       <p className="mb-8 text-sm text-slate-600">
-        Registra cada necesidad de transporte con la <strong>fecha del servicio</strong>; el equipo la verá en el panel
-        de administración.
+        Para ver lo que ya enviaste, abre{' '}
+        <Link to="/panel/cliente/historial" className="font-semibold text-blue-600 underline-offset-2 hover:underline">
+          Historial de solicitudes
+        </Link>
+        .
       </p>
 
-      <div className="mb-10 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-        <h2 className="mb-4 text-lg font-bold text-slate-800">Nueva solicitud</h2>
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
         <form className="grid gap-4 sm:grid-cols-2" onSubmit={(ev) => void onCreate(ev)}>
           <div className="sm:col-span-2">
             <label className={labelClass}>Título breve</label>
@@ -117,11 +115,53 @@ export function ClienteSolicitudesPage() {
             <input name="fecha_servicio" type="date" required className={inputClass} />
           </div>
           <div>
+            <label className={labelClass}>
+              Hora de carga <span className="text-red-500">*</span>
+            </label>
+            <input name="hora_carga" type="time" required className={inputClass} />
+            <p className="mt-1 text-xs text-slate-500">Hora local en la que se prevé la carga ese día.</p>
+          </div>
+          <div className="sm:col-span-2 rounded-xl border border-slate-100 bg-slate-50/80 p-4">
+            <p className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-500">
+              Ventana de entrega <span className="text-red-500">*</span>
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className={labelClass} htmlFor="entrega-desde">
+                  Desde (fecha y hora) <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="entrega-desde"
+                  name="entrega_ventana_desde"
+                  type="datetime-local"
+                  required
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className={labelClass} htmlFor="entrega-hasta">
+                  Hasta (fecha y hora) <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="entrega-hasta"
+                  name="entrega_ventana_hasta"
+                  type="datetime-local"
+                  required
+                  className={inputClass}
+                />
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-slate-500">
+              Intervalo en el que debe realizarse la entrega (hora local en tu zona).
+            </p>
+          </div>
+          <div>
             <label className={labelClass}>Estado</label>
             <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
               Se crea como pendiente hasta asignación.
             </p>
           </div>
+          <div className="hidden sm:block" aria-hidden />
           <div>
             <label className={labelClass}>Origen (opcional)</label>
             <input name="origen" className={inputClass} placeholder="Ciudad, planta o CP" />
@@ -144,7 +184,7 @@ export function ClienteSolicitudesPage() {
           </div>
           <div className="sm:col-span-2">
             <label className={labelClass}>Detalle</label>
-            <textarea name="descripcion" rows={3} className={`${inputClass} resize-y`} placeholder="Volumen, ventana horaria, equipo requerido…" />
+            <textarea name="descripcion" rows={3} className={`${inputClass} resize-y`} placeholder="Volumen, equipo requerido…" />
           </div>
           {msg && <p className="text-sm text-red-600 sm:col-span-2">{msg}</p>}
           {okMsg && <p className="text-sm text-green-700 sm:col-span-2">{okMsg}</p>}
@@ -159,48 +199,6 @@ export function ClienteSolicitudesPage() {
           </div>
         </form>
       </div>
-
-      <h2 className="mb-3 text-lg font-bold text-slate-800">Historial</h2>
-      {rows.length === 0 ? (
-        <p className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
-          Aún no hay solicitudes. Crea la primera con el formulario de arriba.
-        </p>
-      ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-          <table className="min-w-full text-left text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
-              <tr>
-                <th className="px-4 py-3">Fecha servicio</th>
-                <th className="px-4 py-3">Título</th>
-                <th className="px-4 py-3">Peso / dimensiones</th>
-                <th className="px-4 py-3">Transportista</th>
-                <th className="px-4 py-3">Unidad</th>
-                <th className="px-4 py-3">Estado</th>
-                <th className="px-4 py-3">Creado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.id} className="border-b border-slate-100 last:border-0">
-                  <td className="whitespace-nowrap px-4 py-3 font-medium">{r.fecha_servicio}</td>
-                  <td className="px-4 py-3">{r.titulo}</td>
-                  <td className="max-w-[200px] px-4 py-3 text-xs text-slate-600">
-                    {[r.peso_carga, r.dimensiones_carga].filter(Boolean).join(' · ') || '—'}
-                  </td>
-                  <td className="max-w-[180px] px-4 py-3 text-xs text-slate-700">
-                    {r.transportista_contacto ?? '—'}
-                  </td>
-                  <td className="max-w-[200px] px-4 py-3 text-xs text-slate-600">{r.flota_unidad_resumen ?? '—'}</td>
-                  <td className="px-4 py-3">{solicitudServicioEstadoBadge(r.estado)}</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-slate-500">
-                    {new Date(r.created_at).toLocaleDateString('es-MX')}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
     </main>
   )
 }

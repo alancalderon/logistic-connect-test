@@ -18,7 +18,7 @@
 
 ## Rutas y producto
 - **`/admin-login`** no debe enlazarse desde la landing ni formularios públicos (acceso directo por URL). El acceso general de usuarios es **`/iniciar-sesion`**.
-- Flujo público: formulario → RPC `registrar_*_manual` (bcrypt, pendiente) → **`signUp`** + **`vincular_mi_registro_pendiente()`** → admin **`admin_aprobar_*`** → **`/iniciar-sesion`** (`signInWithPassword`). **`/activar-cuenta`** redirige a login. Paneles **`/panel/cliente/solicitudes`**, **`/panel/transportista/flota`**. Admin: **`/admin/usuarios`**, **`/admin/solicitudes`**, **`/admin/flota`**. Correos (Resend vía Edge **`send-email`**) en aprobación/rechazo.
+- Flujo público: formulario → RPC `registrar_*_manual` (bcrypt, pendiente) → **`signUp`** + **`vincular_mi_registro_pendiente()`** → admin **`admin_aprobar_*`** → **`/iniciar-sesion`** (`signInWithPassword`). **`/activar-cuenta`** redirige a login. Paneles cliente: **`/panel/cliente/nueva-solicitud`**, **`/panel/cliente/historial`**. Transportista: **`/panel/transportista/viajes`**, **`/panel/transportista/flota`**, **`/panel/transportista/agregar-vehiculo`**. Admin: **`/admin/solicitudes`**, **`/admin/usuarios`**, **`/admin/waitlist`**, **`/admin/flota`**, **`/admin/guia`** (guía rápida). Correos (Resend vía Edge **`send-email`**) en aprobación/rechazo.
 - Marca: **TransLogix** (no LogiConnect).
 
 ## Responsive (Tailwind)
@@ -28,6 +28,11 @@
 - **Tablas (admin)**: envolver en `overflow-x-auto`; cabeceras de pestañas con scroll horizontal si no caben (`overflow-x-auto`, botones `shrink-0 whitespace-nowrap`).
 - **Evitar desbordes horizontales**: `overflow-x-hidden` o `clip` en hero/iconos grandes; no asumir anchos fijos enormes en móvil.
 - **Áreas táctiles**: botones e iconos de acción con tamaño mínimo razonable (~44px) en móvil cuando sea posible.
+
+## Guía rápida (admin)
+- La pantalla **`/admin/guia`** (`src/pages/admin/AdminGuiaQuickstartPage.tsx`) es el **quickstart visible solo para administradores**: resume flujos y qué hace cada rol en cada sección.
+- Tras un **cambio significativo** en flujos de negocio, pantallas nuevas o eliminadas, o permisos/RLS que afecten lo que puede hacer cliente/transportista/admin, **actualizar esa guía** en el mismo PR o commit de forma coherente (textos, lista de secciones, enlaces de rutas públicas si aplica). Objetivo: que un admin nuevo siga entendiendo el producto sin depender de memoria del equipo.
+- **No** incluir en la guía detalles sensibles de seguridad (por ejemplo rutas o métodos de acceso exclusivo del admin); el tono es operativo y por rol.
 
 ## Calidad
 - Tras cambios sustantivos, ejecutar **`npm run build`** y corregir errores de TypeScript.
